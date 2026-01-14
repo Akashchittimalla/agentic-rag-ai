@@ -9,78 +9,74 @@ from langchain_community.vectorstores import Chroma
 from langchain_core.messages import HumanMessage
 
 # --- PAGE CONFIG ---
-st.set_page_config(page_title="AI Agentic RAG", page_icon="🧠")
-st.title("🧠 Agentic RAG Document Assistant")
-st.markdown("Upload a PDF and ask the AI questions about its content.")
+st.set_page_config(page_title="AI Agentic RAG", page_icon="🧠", layout="wide")
 
-# --- SIDEBAR: API KEY & CONFIG ---
-# This pulls from your Streamlit Secrets
+# --- SIDEBAR ---
+with st.sidebar:
+    st.title("⚙️ Control Panel")
+    uploaded_file = st.file_uploader("Upload your PDF", type="pdf")
+    
+    if st.button("🗑️ Clear Chat History"):
+        if "messages" in st.session_state:
+            st.session_state.messages = []
+        st.rerun()
+    
+    st.divider()
+    st.markdown("### How it works")
+    st.caption("1. PDF is chunked into vectors\n2. ChromaDB stores embeddings\n3. Llama 3.3 retrieves & answers")
+
+# --- MAIN INTERFACE ---
+st.title("🧠 Agentic RAG Document Assistant")
+
+# Initialize session state for chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
 groq_api_key = os.getenv("GROQ_API_KEY")
 
-if not groq_api_key:
-    st.error("GROQ_API_KEY not found in Secrets! please check Advanced Settings.")
-    st.stop()
-
-# --- FILE UPLOADER ---
-uploaded_file = st.file_uploader("Choose a PDF file", type="pdf")
-
 if uploaded_file is not None:
-    # 1. Save uploaded file to a temporary location
+    # 1. Processing (using temp file)
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         tmp_file.write(uploaded_file.getvalue())
         tmp_file_path = tmp_file.name
 
-    st.success(f"File '{uploaded_file.name}' uploaded successfully!")
+    # Check if we need to process the file (to avoid re-processing on every click)
+    if "vectorstore" not in st.session_state or st.session_state.get("last_file") != uploaded_file.name:
+        with st.spinner("🔄 Building AI Knowledge Base..."):
+            loader = PyPDFLoader(tmp_file_path)
+            documents = loader.load()
+            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+            chunks = text_splitter.split_documents(documents)
+            embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+            st.session_state.vectorstore = Chroma.from_documents(documents=chunks, embedding=embeddings)
+            st.session_state.last_file = uploaded_file.name
+            st.success("✅ Document Analyzed!")
 
-    # 2. Ingestion Process
-    with st.spinner("Analyzing document..."):
-        # Load and Split
-        loader = PyPDFLoader(tmp_file_path)
-        documents = loader.load()
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-        chunks = text_splitter.split_documents(documents)
+    # 2. Chat UI
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-        # Embeddings
-        embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-        
-        # Create temporary VectorStore in memory/temp folder
-        vectorstore = Chroma.from_documents(
-            documents=chunks, 
-            embedding=embeddings
-        )
-        retriever = vectorstore.as_retriever()
+    # User Input
+    if prompt := st.chat_input("Ask a question about your PDF:"):
+        # Add user message to history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    st.info("System Ready. Ask your question below.")
-
-    # 3. Chat Interface
-    user_query = st.text_input("Enter your question:")
-
-    if user_query:
-        with st.spinner("AI is thinking..."):
-            # Initialize LLM
-            llm = ChatGroq(
-                model="llama-3.3-70b-versatile", 
-                groq_api_key=groq_api_key
-            )
-            
-            # Retrieve Context
-            relevant_docs = retriever.invoke(user_query)
-            context = "\n\n".join([doc.page_content for doc in relevant_docs])
-            
-            # Generate Answer
-            prompt = f"""
-            You are a helpful AI assistant. Use the following pieces of retrieved context to answer the question. 
-            If you don't know the answer, just say that you don't know.
-            
-            Context: {context}
-            
-            Question: {user_query}
-            """
-            
-            response = llm.invoke([HumanMessage(content=prompt)])
-            
-            st.subheader("Answer:")
-            st.write(response.content)
-
+        # Generate Response
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                llm = ChatGroq(model="llama-3.3-70b-versatile", groq_api_key=groq_api_key)
+                retriever = st.session_state.vectorstore.as_retriever()
+                relevant_docs = retriever.invoke(prompt)
+                context = "\n\n".join([doc.page_content for doc in relevant_docs])
+                
+                full_prompt = f"Context: {context}\n\nQuestion: {prompt}"
+                response = llm.invoke([HumanMessage(content=full_prompt)])
+                
+                st.markdown(response.content)
+                st.session_state.messages.append({"role": "assistant", "content": response.content})
 else:
-    st.warning("Please upload a PDF to get started.")
+    st.info("👈 Please upload a PDF in the sidebar to begin.")
