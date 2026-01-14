@@ -36,5 +36,5 @@ To ensure reliability and prevent hallucinations, this project uses the **RAG Tr
 
 1. **Clone the repo:**
    ```bash
-   git clone [https://github.com/YOUR_USERNAME/agentic-rag-ai.git](https://github.com/YOUR_USERNAME/agentic-rag-ai.git)
+   git clone [https://github.com/akashchittimalla/agentic-rag-ai.git](https://github.com/akashchittimalla/agentic-rag-ai.git)
    cd agentic-rag-ai
