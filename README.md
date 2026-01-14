@@ -5,7 +5,7 @@ An end-to-end **Artificial Intelligence** platform that transforms static PDF do
 
 
 ## 🚀 Live Demo
-**[INSERT YOUR STREAMLIT URL HERE]**
+https://dpjdfbnahwehkmccstgzen.streamlit.app/
 
 ## ✨ Key Features
 * **Dynamic Ingestion:** Upload any PDF and instantly build a searchable vector index.
